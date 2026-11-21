@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% if view == "clip" and clip.state in ("queued", "running") %}<meta http-equiv="refresh" content="4">{% endif %}
+  <title>{% if view == "book" %}{{ book.title }} · {% elif view == "clip" %}播放片段 · {% endif %}无限有声书</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='library.css') }}">
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <a class="brand" href="{{ url_for('library') }}">无限有声书</a>
+    {% if session.owner %}
+    <form method="post" action="{{ url_for('logout') }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="quiet" type="submit">退出</button>
+    </form>
+    {% endif %}
+  </div>
+</header>
+<main>
+  {% set status = {"queued":"排队中", "running":"生成中", "ready":"可播放", "failed":"生成失败"} %}
+  {% for message in get_flashed_messages() %}<p class="notice" role="alert">{{ message }}</p>{% endfor %}
+  {% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+
+  {% if view == "login" %}
+  <section class="card login">
+    <h1>登录书库</h1>
+    <form method="post">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label for="password">个人密码</label>
+      <input type="password" id="password" name="password" required autocomplete="current-password">
+      <button type="submit">登录</button>
+    </form>
+  </section>
+
+  {% elif view == "library" %}
+  <h1>我的书库</h1>
+  <section class="card">
+    <h2>上传 PDF</h2>
+    <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label for="pdf">PDF 文件</label>
+      <input id="pdf" name="pdf" type="file" accept="application/pdf,.pdf" required>
+      <div class="fields">
+        <div>
+          <label for="title">书名 <span class="muted">（可留空）</span></label>
+          <input id="title" name="title" maxlength="150" placeholder="默认使用文件名">
+        </div>
+        <div>
+          <label for="language">朗读语言</label>
+          <select id="language" name="language"><option value="zh">中文</option><option value="en">英文</option></select>
+        </div>
+      </div>
+      <button type="submit">上传</button>
+    </form>
+  </section>
+  <section>
+    <h2>已上传的书</h2>
+    {% if books %}
+    <ul class="items">
+      {% for item in books %}
+      <li>
+        <div><a href="{{ url_for('book', book_id=item.id) }}">{{ item.title }}</a>
+          <p class="muted">{{ '中文' if item.language == 'zh' else '英文' }} · {{ item.pages }} 页</p></div>
+        {% if item.id == current %}<span class="badge">当前书</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">书库还是空的。上传一本 PDF 开始听书。</p>{% endif %}
+  </section>
+
+  {% elif view == "book" %}
+  <a class="back" href="{{ url_for('library') }}">← 我的书库</a>
+  <h1>{{ book.title }}</h1>
+  <p class="muted">{{ '中文' if book.language == 'zh' else '英文' }} · {{ book.pages }} 页</p>
+  {% if is_current %}<span class="badge">当前书</span>{% else %}
+  <form class="inline" method="post" action="{{ url_for('select_book', book_id=book.id) }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="quiet" type="submit">设为当前书</button>
+  </form>
+  {% endif %}
+  <section class="card">
+    <h2>按页码生成</h2>
+    <p class="muted" id="page-help">从 PDF 文件第 1 页起算。只读一页时，结束页可留空。</p>
+    <form method="post" action="{{ url_for('create_clip', book_id=book.id) }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="fields">
+        <div><label for="first-page">起始页</label><input id="first-page" name="first_page" type="number" min="1" max="{{ book.pages }}" required aria-describedby="page-help"></div>
+        <div><label for="last-page">结束页</label><input id="last-page" name="last_page" type="number" min="1" max="{{ book.pages }}" aria-describedby="page-help"></div>
+      </div>
+      <button type="submit">生成音频</button>
+    </form>
+  </section>
+  <section>
+    <h2>片段</h2>
+    {% if clips %}
+    <ul class="items">
+      {% for item in clips %}
+      <li><a href="{{ url_for('clip', clip_id=item.id) }}">第 {{ item.first_page }}{% if item.last_page != item.first_page %}–{{ item.last_page }}{% endif %} 页</a>
+        <span class="badge">{{ status[item.state] }}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">还没有生成过片段。</p>{% endif %}
+  </section>
+
+  {% elif view == "clip" %}
+  <a class="back" href="{{ url_for('book', book_id=clip.book_id) }}">← 返回书籍</a>
+  <h1>{{ clip.title }}</h1>
+  <section class="card">
+    <h2>第 {{ clip.first_page }}{% if clip.last_page != clip.first_page %}–{{ clip.last_page }}{% endif %} 页</h2>
+    <p role="status" class="badge">{{ status[clip.state] }}</p>
+    {% if clip.state == "ready" %}
+    <audio controls preload="metadata" aria-label="朗读音频" src="{{ url_for('audio', clip_id=clip.id) }}"></audio>
+    {% elif clip.state == "failed" %}
+    <p role="alert">{{ clip.error }}</p>
+    <form method="post" action="{{ url_for('retry', clip_id=clip.id) }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit">重试</button>
+    </form>
+    {% else %}<p class="muted">音频准备好后，这里会自动出现播放按钮。你也可以稍后打开同一个链接。</p>{% endif %}
+  </section>
+  {% else %}<a href="{{ url_for('library') }}">返回书库</a>{% endif %}
+</main>
+</body>
+</html>

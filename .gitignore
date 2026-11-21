@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+output/
+book-data/
+dist/
+samples/
+*.pdf
+*.mp3
+*.wav
+*.sqlite3*
+.env
+.env.*
+credentials.json
+*.pem
+*.key
